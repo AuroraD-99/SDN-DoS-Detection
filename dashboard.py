@@ -17,7 +17,7 @@ PROTO_OPTIONS = {
     1: "ICMP",
     6: "TCP",
     17: "UDP",
-    None: "N/A" # In caso di protocollo non specificato nel match o non riconosciuto
+    None: "N/A" 
 }
 
 # --- Functions for interacting with the Ryu API ---
@@ -41,14 +41,9 @@ def get_network_stats():
         return {"total_hosts_discovered": "N/A", "protocol_distribution_packet_count": {}}
 
 @st.cache_data(ttl=5) # Cache per i flussi che si aggiornano regolarmente
-def get_all_flows():
-    """
-    Retrieves the list of all flows on the network from the controller.
-    This function expects the /stats/flows endpoint to return a dict
-    where keys are DPIDs and values are lists of flow dictionaries.
-    """
+def get_all_flows(): #Estrae la lista di tutti i flussi attivi dal controller
     try:
-        response = requests.get(f"{RYU_API_BASE}/stats/flows", timeout=10) # Aggiungi timeout
+        response = requests.get(f"{RYU_API_BASE}/stats/flows", timeout=10) 
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:
@@ -61,16 +56,10 @@ def get_all_flows():
         st.error(f"An unexpected error occurred while retrieving flows: {e}")
         return {}
 
-# @st.cache_data # Considera di usare la cache se i dati non cambiano troppo spesso o per sessione utente
-def add_to_blocklist(payload):
-    """
-    Sends a request to the controller API to add a flow to the blocklist.
-    Payload should match the expected structure of BlocklistApi POST.
-    """
+def add_to_blocklist(payload): #Blocca un flusso inviando una richiesta POST all'API del controller
     controller_api_url = f"{RYU_API_BASE}/blocklist" 
     try:
-        # L'API del controller si aspetta un payload JSON
-        response = requests.post(controller_api_url, json=payload, timeout=5)
+        response = requests.post(controller_api_url, json=payload, timeout=5) # L'API del controller si aspetta un payload JSON
         response.raise_for_status() # Lancia un'eccezione per codici di stato HTTP errati (4xx o 5xx)
         st.success(response.json().get("message", "Flow blocked successfully!"))
         st.cache_data.clear() 
@@ -92,29 +81,15 @@ def add_to_blocklist(payload):
             st.error(error_message)
             return {"error": str(e)}
 
-def remove_from_blocklist(ip_src=None, ip_dst=None, src_port=None, dst_port=None, ip_proto=None, dpid=None):
-    """
-    Invia una richiesta DELETE all'API Ryu per rimuovere flussi dalla blocklist.
-    L'IP sorgente è passato nel path, gli altri parametri come query string.
-    
-    :param ip_src: Indirizzo IP sorgente del flusso da sbloccare. (Obbligatorio per la chiamata API)
-    :param ip_dst: Indirizzo IP di destinazione opzionale.
-    :param src_port: Porta sorgente opzionale.
-    :param dst_port: Porta di destinazione opzionale.
-    :param ip_proto: Numero di protocollo IP opzionale (es. 6 per TCP, 17 per UDP).
-    :param dpid: DataPath ID opzionale (in formato esadecimale stringa).
-    """
+def remove_from_blocklist(ip_src=None, ip_dst=None, src_port=None, dst_port=None, ip_proto=None, dpid=None): #Invia una richiesta DELETE all'API Ryu per rimuovere flussi dalla blocklist.
     if not ip_src:
-        # st.error is assumed to be defined if using Streamlit
         st.error("Errore: per sbloccare un flusso è necessario specificare un IP sorgente.")
         return {"status": "error", "message": "Missing ip_src for unblock operation."}
 
-    # Build query string parameters
     query_params = {}
-    if ip_dst: # Add if not None and not an empty string
+    if ip_dst: 
         query_params['ip_dst'] = ip_dst
     
-    # For ports, convert to int then str, ensuring it's not None
     if src_port is not None:
         try:
             query_params['src_port'] = str(int(src_port))
@@ -132,18 +107,16 @@ def remove_from_blocklist(ip_src=None, ip_dst=None, src_port=None, dst_port=None
         except (ValueError, TypeError):
             st.warning(f"Protocollo IP non valido: {ip_proto}. Ignorato.")
     
-    if dpid: # Add if not None and not an empty string
-        query_params['dpid'] = dpid # DPID should already be a hex string
+    if dpid: 
+        query_params['dpid'] = dpid 
 
-    # Construct the final URL
     base_url = f"{RYU_API_BASE}/blocklist/{ip_src}"
     if query_params:
         query_string = urllib.parse.urlencode(query_params)
         full_url = f"{base_url}?{query_string}"
     else:
-        full_url = base_url # This is the case causing you trouble
+        full_url = base_url 
 
-    # Add this line for debugging
     st.info(f"Invio richiesta DELETE a: {full_url}") 
     try:
         response = requests.delete(full_url, timeout=10)
@@ -151,8 +124,6 @@ def remove_from_blocklist(ip_src=None, ip_dst=None, src_port=None, dst_port=None
         
         response_data = response.json()
         st.success(f"Richiesta di sblocco inviata: {response_data.get('message', 'Operazione completata con successo.')}")
-        # Assuming st.cache_data.clear() is relevant for Streamlit caching
-        # st.cache_data.clear() 
         return response_data
     except requests.exceptions.HTTPError as http_err:
         error_msg = f"Errore HTTP durante lo sblocco: {http_err.response.status_code} - {http_err.response.text}"
@@ -168,11 +139,8 @@ def remove_from_blocklist(ip_src=None, ip_dst=None, src_port=None, dst_port=None
         st.error(f"Errore generico durante l'invio della richiesta di sblocco: {e}")
         return {"status": "error", "message": str(e)}
 
-@st.cache_data(ttl=5) # Puoi aggiungere una cache con TTL breve per aggiornamenti rapidi
-def get_blocklist_status():
-    """
-    Retrieves the current status of the blocklist from the controller.
-    """
+@st.cache_data(ttl=5) 
+def get_blocklist_status(): #Recupera lo stato della blocklist dal controller Ryu
     controller_api_url = f"{RYU_API_BASE}/blocklist/all"
     try:
         response = requests.get(controller_api_url, timeout=5)
@@ -195,23 +163,15 @@ def get_blocklist_status():
             st.error(error_message)
             return {}
 
-def get_flow_details(src_ip, dst_ip=None, protocol_num=None): 
-    """
-    Retrieves details for a specific flow.
-    NOTE: L'API del controller non ha un endpoint specifico per 'flow details' come per 'host details'.
-    Dobbiamo estrarre i dettagli dai dati di 'get_all_flows'.
-    """
+def get_flow_details(src_ip, dst_ip=None, protocol_num=None): #Recupera i dettagli di un flusso dal controller Ryu
     all_flows_raw = get_all_flows()
     found_flow_details = []
 
     for dpid, flows_on_dpid in all_flows_raw.items():
         for flow in flows_on_dpid:
-            # Check for source IP match
             if flow.get('src_ip') == src_ip:
-                # Optional: Filter by destination IP if provided
                 if dst_ip and flow.get('dst_ip') != dst_ip:
                     continue
-                # Optional: Filter by protocol if provided
                 if protocol_num is not None and flow.get('protocol_num') != protocol_num:
                     continue
 
@@ -229,8 +189,7 @@ def get_host_details(ip_address):
         return None
 
 # --- Functions for Dashboard Sections ---
-def show_network_stats_section():
-    """Shows current network statistics."""
+def show_network_stats_section(): #Mostra le statistiche generali della rete
     st.header("Statistiche Attuali della Rete 📊")
 
     stats = get_network_stats()
@@ -266,8 +225,7 @@ def show_network_stats_section():
     else:
         st.info("Nessuna statistica di protocollo disponibile al momento.")
 
-def show_block_flow_section(): 
-    """Shows the section for manually blocking a flow with detailed options."""
+def show_block_flow_section(): #Mostra la sezione per bloccare un flusso manualmente
     st.header("Block a Flow Manually 🚫")
 
     all_flows_data = get_all_flows()
@@ -325,12 +283,11 @@ def show_block_flow_section():
                 key="block_dpid_select_form" 
             )
             
-            # Qui usiamo le chiavi di PROTO_MAP per la selezione, inclusa "Any"
             block_proto_selection_keys = list(PROTO_OPTIONS.keys())
             block_ip_proto_display = st.selectbox(
                 "Protocol (Optional)",
                 options=block_proto_selection_keys,
-                format_func=lambda x: PROTO_OPTIONS.get(x, str(x)), # Usa PROTO_MAP per il display
+                format_func=lambda x: PROTO_OPTIONS.get(x, str(x)), 
                 help="Select the protocol (TCP, UDP, ICMP, etc.). 'Any' blocks all protocols for the given IPs.",
                 key="block_proto_select_form" 
             )
@@ -359,7 +316,7 @@ def show_block_flow_section():
                 st.warning("Please specify a **Source IP Address** to block.")
             else:
                 payload = {
-                    "ip_address": block_ip_src, # Corrisponde a ipv4_src nel payload
+                    "ip_address": block_ip_src, 
                     "reason": "Manual block from dashboard"
                 }
 
@@ -380,11 +337,7 @@ def show_block_flow_section():
                         st.error("Destination Port must be a valid integer.")
                         return
 
-                # Converti il protocollo selezionato nel suo valore numerico se non è "Any"
                 if block_ip_proto_display != "Any":
-                    # Trova la chiave numerica corrispondente al valore di visualizzazione
-                    # Questo è necessario perché PROTO_MAP ha numeri come chiavi e nomi come valori
-                    # st.selectbox restituisce la CHIAVE del dizionario `options`
                     numeric_proto = PROTO_OPTIONS.get(block_ip_proto_display)
                     if numeric_proto is not None:
                         payload["ip_proto"] = numeric_proto
@@ -406,11 +359,9 @@ def show_block_flow_section():
                 
                 st.json(payload) 
                 add_to_blocklist(payload)
-                # Non è necessario un time.sleep lungo, rerun è sufficiente
                 st.rerun() 
 
 def show_blocked_flows_list_section():
-    """Shows the current list of blocked flows with additional info and unblock buttons."""
     st.header("Flussi Attualmente Bloccati 🛡️",
               help="Questa lista mostra tutti i flussi che sono stati bloccati, sia manualmente (Bloccati da Amministratore) che automaticamente dal sistema (Bloccati Dinamicamente). "
                    "Vengono mostrati i dettagli dei criteri di match esatti per ogni flusso bloccato.")
@@ -418,7 +369,7 @@ def show_blocked_flows_list_section():
     blocklist_data_raw = get_blocklist_status()
 
     display_data = []
-    blocked_ips_for_unblock_all_buttons = set() # Usiamo un set per gli IP sorgente bloccati per evitare duplicati
+    blocked_ips_for_unblock_all_buttons = set() 
 
     if not blocklist_data_raw:
         st.info("Nessun flusso bloccato al momento.")
@@ -444,7 +395,6 @@ def show_blocked_flows_list_section():
 
                 match_params = flow_info.get('match_params', {})
 
-                # Costruiamo la stringa dei dettagli di match in modo più esaustivo
                 match_details_str_parts = []
                 if 'eth_type' in match_params:
                     match_details_str_parts.append(f"Eth Type: {hex(match_params['eth_type'])}")
@@ -470,7 +420,6 @@ def show_blocked_flows_list_section():
                 if 'eth_dst' in match_params:
                     match_details_str_parts.append(f"Dst MAC: {match_params['eth_dst']}")
 
-                # Aggiungiamo eventuali altri campi direttamente dal match_params che non sono stati gestiti esplicitamente
                 for k, v in match_params.items():
                     if k not in ['eth_type', 'ipv4_src', 'ipv4_dst', 'ip_proto',
                                  'tcp_src', 'tcp_dst', 'udp_src', 'udp_dst',
@@ -598,7 +547,6 @@ def show_blocked_flows_list_section():
         st.info("Nessun flusso bloccato al momento.")
 
 def show_all_flows_section(): 
-    """Shows the list of all flows in the network and allows viewing details."""
     st.header("List of All Network Flows 🌐")
 
     all_flows_data_raw = get_all_flows()
@@ -608,12 +556,11 @@ def show_all_flows_section():
         return
 
     flat_flows_list = []
-    # all_flows_data_raw è un dict {dpid: [flow_info_dict, ...]}
     for dpid, flows_list_for_dpid in all_flows_data_raw.items():
         if isinstance(flows_list_for_dpid, list):
             for flow_info in flows_list_for_dpid:
                 flow_info_copy = flow_info.copy()
-                flow_info_copy['dpid'] = dpid # Aggiungi il DPID al dizionario del flusso
+                flow_info_copy['dpid'] = dpid 
                 
                 proto_num = flow_info_copy.get('protocol_num')
                 flow_info_copy['protocol_name'] = PROTO_OPTIONS.get(proto_num, 'N/A')
@@ -638,8 +585,6 @@ def show_all_flows_section():
 
     st.subheader("All Active Flows Table")
 
-    # Headers della tabella
-    # Aggiusta le larghezze per includere il bottone di blocco
     #TODO: AGGIUNGERE UN FILTRO PER FILTRARE LA TABELLA IN BASE ALL'IP
     cols_header = st.columns([0.7, 1, 1, 0.8, 0.7, 0.7, 1.2, 1.2, 1.2, 0.5])
     headers = ["DPID", "Source IP", "Dest. IP", "Proto", "Src Port", "Dst Port",
@@ -659,19 +604,16 @@ def show_all_flows_section():
         with cols[5]: st.write(row.get("dst_port", "N/A"))
         with cols[6]: st.write(row.get("packet_count", "N/A"))
         with cols[7]: st.write(row.get("byte_count", "N/A"))
-        with cols[8]: st.write(f"{row.get('current_bandwidth_mbps', 0.0):.2f}") # Formatta la banda
+        with cols[8]: st.write(f"{row.get('current_bandwidth_mbps', 0.0):.2f}") 
         with cols[9]:
-            # Bottone di blocco per il Source IP di questo flusso
-            # Assicurati che l'IP sorgente esista prima di mostrare il bottone
             if row.get("src_ip") and row.get("src_ip") != 'N/A':
-                # Costruisci il payload per il blocco con i campi corretti per l'API
                 block_payload = {
-                    "ip_address": row.get("src_ip"), # Il campo principale per l'identificazione
+                    "ip_address": row.get("src_ip"),
                     "reason": "Block from all flows table"
                 }
-                # Aggiungi gli altri campi solo se presenti e validi
+                
                 if row.get("dst_ip") and row.get("dst_ip") != 'N/A':
-                    block_payload["ipv4_dst"] = row.get("dst_ip") # Usa 'ipv4_dst'
+                    block_payload["ipv4_dst"] = row.get("dst_ip") 
                 if row.get("protocol_num") is not None:
                     block_payload["ip_proto"] = row.get("protocol_num")
                 if row.get("src_port") is not None and row.get("src_port") != 'N/A':
@@ -685,20 +627,19 @@ def show_all_flows_section():
                     result = add_to_blocklist(block_payload)
                     st.rerun()
             else:
-                st.write("-") # O un messaggio di non disponibile
+                st.write("-") 
 
-def show_flow_details_panel(): # Non prende più ip_address come parametro diretto
+def show_flow_details_panel(): 
     """Shows details for flows originating from or destined to a specific IP, and host details."""
     st.subheader("Dettagli Flussi e Host 🔍")
 
-    # Bottone per tornare alla sezione delle statistiche di rete
     if st.button("Torna alle Statistiche di Rete"):
         st.session_state['current_page'] = "Network Stats"
-        st.session_state['selected_flow_src_ip'] = None # Deseleziona IP
+        st.session_state['selected_flow_src_ip'] = None 
         st.session_state['rerun_triggered'] = True
         st.rerun()
 
-    st.markdown("---") # Separatore
+    st.markdown("---") 
 
     all_flows_data_raw = get_all_flows()
 
@@ -711,10 +652,9 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
         if isinstance(flows_list_for_dpid, list):
             for flow_info in flows_list_for_dpid:
                 flow_info_copy = flow_info.copy()
-                flow_info_copy['dpid'] = dpid # Aggiungi il DPID al dizionario del flusso
+                flow_info_copy['dpid'] = dpid 
 
                 proto_num = flow_info_copy.get('protocol_num')
-                # Assicurati che PROTO_OPTIONS sia accessibile qui (importato o passato)
                 flow_info_copy['protocol_name'] = PROTO_OPTIONS.get(proto_num, 'Sconosciuto')
                 flat_flows_list.append(flow_info_copy)
         else:
@@ -726,12 +666,10 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
 
     df_flows = pd.DataFrame(flat_flows_list)
 
-    # Identifica tutti gli IP unici presenti nei flussi (sorgente o destinazione)
     unique_ips_from_flows = sorted(pd.concat([df_flows['src_ip'], df_flows['dst_ip']]).unique().tolist())
 
-    # Seleziona un IP dalla lista, con l'opzione di preselezione se un IP è già stato scelto
     if 'selected_flow_src_ip' not in st.session_state:
-        st.session_state['selected_flow_src_ip'] = None # Inizializza se non esiste
+        st.session_state['selected_flow_src_ip'] = None 
 
     selected_ip_for_details = st.selectbox(
         "Seleziona un Indirizzo IP per Visualizzare Flussi Associati e Dettagli Host",
@@ -743,11 +681,9 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
     # Aggiorna session_state solo se l'utente ha fatto una nuova selezione
     if selected_ip_for_details and selected_ip_for_details != st.session_state['selected_flow_src_ip']:
         st.session_state['selected_flow_src_ip'] = selected_ip_for_details
-        # Non serve rerun qui, la selezione diretta aggiorna già il widget
 
-    # Ora il resto della logica si basa su `selected_ip_for_details`
     if selected_ip_for_details:
-        ip_address = selected_ip_for_details # Usa l'IP selezionato come riferimento
+        ip_address = selected_ip_for_details 
         st.subheader(f"Dettagli per Host e Flussi Associati: {ip_address}")
 
         # Ottieni i dettagli dell'host dall'API
@@ -768,7 +704,6 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
 
             if flows_for_ip:
                 df_selected_flows = pd.DataFrame(flows_for_ip)
-                # 'protocol' è già il nome del protocollo in HostApi, non 'protocol_num'
                 if 'protocol' in df_selected_flows.columns:
                     df_selected_flows.rename(columns={'protocol': 'protocol_name'}, inplace=True)
                 elif 'protocol_name' not in df_selected_flows.columns and 'protocol_num' in df_selected_flows.columns:
@@ -830,13 +765,11 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
                 if not is_host_blocked_overall:
                     with col_block_flow:
                         if st.button(f"Blocca Host IP {ip_address}", key=f"block_src_ip_{ip_address}"):
-                            # Passa un dizionario con ip_address per il blocco generico dell'host
                             add_to_blocklist({"ip_address": ip_address, "reason": "Blocco manuale host dal pannello dettagli"})
                             st.rerun()
                 else:
                     with col_unblock_flow:
                         if st.button(f"Sblocca Host IP {ip_address}", key=f"unblock_src_ip_{ip_address}"):
-                            # Passa solo l'IP sorgente per lo sblocco generico dell'host
                             remove_from_blocklist(ip_src=ip_address)
                             st.rerun()
 
@@ -847,8 +780,6 @@ def show_flow_details_panel(): # Non prende più ip_address come parametro diret
     else:
         st.info("Seleziona un indirizzo IP per visualizzare i dettagli.")
 
-
-# --- Sidebar Navigation with Buttons ---
 st.sidebar.title("Dashboard Navigation 🧭")
 st.sidebar.markdown("Click a button to view the corresponding section.")
 
@@ -862,7 +793,7 @@ if st.sidebar.button("Network Statistics", key="btn_network_stats"):
 
 if st.sidebar.button("List All Flows", key="btn_all_flows"):
     st.session_state['current_page'] = "List All Flows"
-    if 'selected_flow_src_ip' in st.session_state: # Clear selected IP if moving away from details
+    if 'selected_flow_src_ip' in st.session_state: 
         del st.session_state['selected_flow_src_ip']
     st.session_state['rerun_triggered'] = True
     st.rerun()
@@ -895,12 +826,10 @@ elif st.session_state['current_page'] == "Flow Details":
         st.warning("No host IP selected to view details. Returning to 'List All Flows'.")
         st.session_state['current_page'] = "List All Flows"
         st.session_state['rerun_triggered'] = True
-        st.rerun() # Reruns to the list all flows section
+        st.rerun() 
 
-# Automatic rerun logic
 if not st.session_state.get('rerun_triggered', False):
-    time.sleep(5) # Attendi 5 secondi prima di aggiornare
+    time.sleep(5) 
     st.rerun()
-# Resetta il flag dopo il rerun per permettere il prossimo aggiornamento automatico
 if 'rerun_triggered' in st.session_state:
     del st.session_state['rerun_triggered']

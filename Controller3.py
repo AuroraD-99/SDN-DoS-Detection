@@ -18,8 +18,6 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import tcp, udp, icmp
 
-# Importa le classi WSGI per l'API REST
-
 from api_handlers import BlocklistApi, NetworkStatsApi, HostApi, PROTO_MAP 
 
 class SimpleSwitch13(app_manager.RyuApp):
@@ -33,47 +31,45 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
-        #handler = logging.StreamHandler()
-        #formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        #handler.setFormatter(formatter)
-        #self.logger.addHandler(handler)
         self.logger.info("Initializing controller...")
         
+        #--------------------------------------- Gestione degli switch e dei flussi ---------------------------------------
         self.datapaths = {}
         self.mac_to_port = {}
         self.mac_to_ip = {}
 
-
+        #Statistiche delle porte
         self.port_stats = {}
         self.port_stats_lock = threading.Lock()
 
+        #Statistiche dei flussi
         self.flow_stats = {}
         self.flow_stats_lock = threading.Lock()
 
-        #self.port_mac_mapping = {}
-
-        # blocked_flows: {datapath_id: {flow_key: {...}}}
-        self.blocked_flows = {}
+        #Flussi bloccati
+        self.blocked_flows = {} # blocked_flows: {datapath_id: {flow_key: {...}}}
         self.blocked_flows_lock = threading.Lock()
-        # unblocked_flows: {datapath_id: {flow_key: {...}}}
-        self.unblocked_flows = {}
+        
+        #Flussi da sbloccare
+        self.unblocked_flows = {} # unblocked_flows: {datapath_id: {flow_key: {...}}}
         self.unblocked_flows_lock = threading.Lock()
 
+        #--------------------------------------- Gestione delle anomalie e congestione ---------------------------------------
         self.congestion = False
-        self.error_percentage_threshold = 0.06 
 
-        self.block_thresholds = {6: 12, 17: 2}
+        self.error_percentage_threshold = 0.06 #6% di errore
+        # Variabili per la detection di burst/anomalie
+        self.BURST_CHANGE_RATE_BW_THRESHOLD = 0.7 # 70% di aumento
+        self.BURST_CHANGE_RATE_PKT_THRESHOLD = 0.7 # 70% di aumento
+        self.HIGH_PACKET_RATE_THRESHOLD = 10000 # 10000 pacchetti/sec
+
+        #Numero di tentativi per bloccare/sbloccare un flusso in base al suo ip_proto
+        self.block_thresholds = {6: 12, 17: 2} 
         self.unblock_thresholds = {6: 4, 17: 4}
 
-        # Variabili per la detection di burst/anomalie
-        self.BURST_CHANGE_RATE_BW_THRESHOLD = 0.7 # Es: 60% di aumento
-        self.BURST_CHANGE_RATE_PKT_THRESHOLD = 0.7 # Es: 60% di aumento
-        self.HIGH_PACKET_RATE_THRESHOLD = 10000 # Es: 10000 pacchetti/sec
-        
         # Coda per le azioni di enforcement (per la modularità)
         self.enforcement_queue = queue.Queue()
 
-        # Inizializzazione WSGI per l'API REST
         # Inizializzazione WSGI per l'API REST
         self.wsgi = kwargs['wsgi']
         
@@ -81,16 +77,14 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.api_data = {
             'dps': self.datapaths,
             'blocked_flows': self.blocked_flows,
-            #'unblocked_flows': self.unblocked_flows, # Passa anche unblocked_flows
             'enforcement_queue': self.enforcement_queue,
             'blocked_flows_lock': self.blocked_flows_lock,
-            #'unblocked_flows_lock': self.unblocked_flows_lock, # Passa anche il lock
-            'mac_to_ip': self.mac_to_ip, # Passa la tabella host scoperta
-            'port_stats': self.port_stats, # Passa le statistiche delle porte
+            'mac_to_ip': self.mac_to_ip, 
+            'port_stats': self.port_stats, # statistiche delle porte
             'port_stats_lock': self.port_stats_lock,
-            'flow_stats': self.flow_stats, # Passa le statistiche dei flussi
+            'flow_stats': self.flow_stats, # statistiche dei flussi
             'flow_stats_lock': self.flow_stats_lock,
-            'logger': self.logger # Passa il logger
+            'logger': self.logger # logger
         }
         
         # Registra le API con i dati condivisi
@@ -109,17 +103,18 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 'blocked_flows': self.blocked_flows, 'blocked_flows_lock': self.blocked_flows_lock,
                                 'logger': self.logger})
 
+        #--------------------------------------- Gestione della bandwidth dinamica --------------------------------------- 
         self.total_bandwidth = 700000
         self.threshold_bandwidth = 0.8 * self.total_bandwidth
         self.threshold_bandwidth_lock = threading.Lock()
         self.bandwidth_thread = hub.spawn(self._calculate_threshold_bandwidth)
 
+        #--------------------------------------- Monitoraggio ed enforcement --------------------------------------- 
         self.sleep_time = 2
         self.monitor_thread = hub.spawn(self._monitor)
         self.thread = hub.spawn(self._enforcement_manager)
 
     #-------------------------------------------------------- Utility Function --------------------------------------------------------
-
     def _initial_threshold_bandwidth(self):
         return 0.8 * self.total_bandwidth
 
@@ -156,10 +151,10 @@ class SimpleSwitch13(app_manager.RyuApp):
                     new_threshold *= (1 - adjustment_factor)
 
                 new_threshold = max(min_bandwidth, min(max_bandwidth, new_threshold))
-                average_packet_size = 1000  # byte, puoi stimare o calcolare dinamicamente
-                self.HIGH_PACKET_RATE_THRESHOLD = int(self.threshold_bandwidth / average_packet_size)
-            
                 self.threshold_bandwidth = new_threshold
+
+                average_packet_size = 1000  #TODO: stimare o calcolare dinamicamente
+                self.HIGH_PACKET_RATE_THRESHOLD = int(self.threshold_bandwidth / average_packet_size)
 
             self.logger.info(f"\n ****************[BANDWIDTH UPDATE] Nuova soglia dinamica: {new_threshold:.2f} B/s ****************\n")
     
@@ -176,7 +171,6 @@ class SimpleSwitch13(app_manager.RyuApp):
             return False
         avg = statistics.mean(total)
 
-        #with self.threshold_bandwidth_lock:
         new_threshold = self.threshold_bandwidth
 
         is_throughput_high = avg > new_threshold * 0.6
@@ -201,15 +195,17 @@ class SimpleSwitch13(app_manager.RyuApp):
     
     def _calculate_bandwidth_and_delay(self, stat, datapath_id):
         match = stat.match
+
         ip_src = match.get('ipv4_src')
         if ip_src is None:
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 
+        
         ip_proto = match.get('ip_proto', None)
-        ip_dst = match.get('ipv4_dst')
-        src_port = match.get('src_port')
-        dst_port = match.get('dst_port')
+        ip_dst = match.get('ipv4_dst', None)
+        src_port = match.get('src_port', None)
+        dst_port = match.get('dst_port', None)
 
-        flow_key = (ip_src, ip_dst, src_port, dst_port, ip_proto)
+        flow_key = (ip_src, ip_dst, src_port, dst_port, ip_proto) #l'ip_src è sempre presente, gli altri parametri possono non essere presenti
 
         now = time.time()
         byte_count = stat.byte_count
@@ -234,10 +230,10 @@ class SimpleSwitch13(app_manager.RyuApp):
                     'packet_count': packet_count,
                     'last_bandwidth': 0.0,  
                     'last_packet_rate': 0.0,
-                    'ip_proto': ip_proto,
-                    'ip_dst': ip_dst, 
-                    'src_port': src_port, 
-                    'dst_port': dst_port
+                    #'ip_proto': ip_proto,
+                    #'ip_dst': ip_dst, 
+                    #'src_port': src_port, 
+                    #'dst_port': dst_port
                 }
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 
 
@@ -272,10 +268,10 @@ class SimpleSwitch13(app_manager.RyuApp):
                 'packet_count': packet_count, 
                 'last_bandwidth': bandwidth,
                 'last_packet_rate': packet_rate,
-                'ip_proto': ip_proto,
-                'ip_dst': ip_dst, 
-                'src_port': src_port, 
-                'dst_port': dst_port 
+                #'ip_proto': ip_proto,
+                #'ip_dst': ip_dst, 
+                #'src_port': src_port, 
+                #'dst_port': dst_port 
             }
 
         return bandwidth, elapsed, bw_change_rate, pkt_change_rate, delta_bytes, delta_packets, packet_rate
@@ -314,7 +310,6 @@ class SimpleSwitch13(app_manager.RyuApp):
                     self.blocked_flows.pop(datapath.id, None)
                 with self.unblocked_flows_lock:
                     self.unblocked_flows.pop(datapath.id, None)
-                #self.port_mac_mapping.pop(datapath.id, None)
                 self.mac_to_ip.pop(datapath.id, None)
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
@@ -489,25 +484,22 @@ class SimpleSwitch13(app_manager.RyuApp):
         datapath_id = datapath.id
 
         self.logger.info(f"\n       [FLOW STATS][{datapath_id}] Byte_count | Duration | Total(B/s) | Bandwidth Variation | Packet Rate | Packet Rate Variation ")
+        
         for stat in body: 
             match = stat.match
-
             if match.get('eth_type') != 0x0800:
                 #self.logger.info("\n    [REQUEST STATS][FLOW STATS - {datapath_id}] Il flusso non è IP. Skipping stats.")
                 continue
+
             ip_src = match.get('ipv4_src')
-            ip_dst = match.get('ipv4_dst')
-            ip_proto = match.get('ip_proto')
-            src_port = match.get('src_port')
-            dst_port = match.get('dst_port')
-
-            flow_key = (ip_src, ip_dst, src_port, dst_port, ip_proto) #TODO: VA GESTITO IL CASO IN CUI MANCANO SRC_PORT E DST_PORT (ANCHE DA API)
-
             if ip_src is None:
                 #self.logger.debug(f"[FLOW STATS][{datapath_id}] No IP source found, skipping flow.")
                 continue
 
-            if ip_proto is None:   # Se il protocollo non è nel match, cercalo in mac_to_ip
+            ip_dst = match.get('ipv4_dst', None)
+
+            ip_proto = match.get('ip_proto', None)
+            if ip_proto is None:   # Se il protocollo non è nel match, lo cerca in mac_to_ip
                 for _, info in self.mac_to_ip.get(datapath_id, {}).items():
                     if info.get('ip_src') == ip_src:
                         ip_proto = info.get('ip_proto')
@@ -515,62 +507,80 @@ class SimpleSwitch13(app_manager.RyuApp):
                 if ip_proto is None: # Se ancora non trovato, salta
                     continue
 
+            src_port = match.get('src_port', None)
+            dst_port = match.get('dst_port', None)
+
+            flow_key = (ip_src, ip_dst, src_port, dst_port, ip_proto)
+
             self._process_flow_for_policy_decision(datapath, stat, flow_key, ip_proto)
     
     def _process_flow_for_policy_decision(self, datapath, stat, flow_key, ip_proto):
         datapath_id = datapath.id
         current_time = time.time()
-        
+
+        # Calcolo della soglia dinamica per il blocco
         threshold_bandwidth = self.threshold_bandwidth
         if ip_proto == 17:
             threshold = threshold_bandwidth * 0.4
         else:
             threshold = threshold_bandwidth * 1.0
-        bandwidth, duration_sec, bw_change_rate, pkt_change_rate, delta_bytes, delta_packets, packet_rate = self._calculate_bandwidth_and_delay(stat, datapath_id)
+
+        # Calcolo delle statistiche del flusso
+        bandwidth, duration_sec, bw_change_rate, pkt_change_rate, _, _, packet_rate = self._calculate_bandwidth_and_delay(stat, datapath_id)
         self.logger.info(f"        [FLOW {flow_key}]      {stat.byte_count:.2f}  |       {duration_sec:.2f}  |     {bandwidth:.2f} B/s  | {bw_change_rate:.2f} | {packet_rate:.2f} | {pkt_change_rate:.2f}")
         
+        #Verifica dei burst e anomalie
         is_bursty_bandwidth = bw_change_rate > self.BURST_CHANGE_RATE_BW_THRESHOLD
         is_bursty_packet_rate = pkt_change_rate > self.BURST_CHANGE_RATE_PKT_THRESHOLD
         is_high_packet_rate = packet_rate > self.HIGH_PACKET_RATE_THRESHOLD
 
+        #Controllo sullo stato di congestione della rete
+        self.congestion = self._check_congestion() 
+
+        #Verifica sullo stato del flusso (bloccato lato controller o admin)
         current_block_status = False
         is_admin_blocked = False
-        
+
         with self.blocked_flows_lock:
             flow_data = self.blocked_flows.get(datapath_id, {}).get(flow_key)
             if flow_data:
                 current_block_status = flow_data['blocked']
                 is_admin_blocked = flow_data.get('admin_blocked', False)
-
-        self.congestion = self._check_congestion() #Dopo aver calcolato le statistiche controllo se la rete è congestionata
-
-        # 1. Gestione dei flussi già bloccati dal controller (priorità 2)
+        
+        #Gestione dei flussi già bloccati dal controller
         if stat.priority == 2:
-            self.logger.info(f"[BLOCKED FLOW STATS][FLOW {flow_key}] Traffico droppato (già bloccato): {bandwidth:.2f} B/s")
+            #self.logger.info(f"[BLOCKED FLOW STATS][FLOW {flow_key}] Traffico droppato (già bloccato): {bandwidth:.2f} B/s")
             with self.unblocked_flows_lock:
                 uflows = self.unblocked_flows.get(datapath_id, {})
                 if flow_key in uflows:
                     flow_info = uflows[flow_key]
 
-                    if flow_info and not is_admin_blocked:
+                    if flow_info and not is_admin_blocked: #i flussi bloccati dall'admin non possono essere sbloccati automaticamente - TODO: inserire lato admin un pulsante che, in fase di blocco, autorizza allo sblocco automatico
                         if bandwidth < threshold and not self.congestion:
                             flow_info['count'] += 1
                             self.logger.info(f" [UNBLOCK CHECK][FLOW {flow_key}] Traffico droppato sotto soglia e rete non congestionata: {flow_info['count']} verifiche positive per lo sblocco.")
                         elif bandwidth >= threshold:
                             flow_info['count'] = 0
                             self.logger.info(f" [UNBLOCK COUNT][FLOW {flow_key}] Reset conteggio sblocco: Traffico droppato ancora alto o rete congestionata.")
+        
+        #Gestione dei flussi bloccati dall'admin
         if is_admin_blocked:
             self.logger.warning(f" [POLICY DECISION][FLOW {flow_key}] Traffic is admin-blocked. Ensuring block rule is in place.")
             if not current_block_status:
                 self.enforcement_queue.put({'type': 'block', 'datapath': datapath, 'flow_key': flow_key, 'admin_override': True})
             return
+        
+        #Gestione dei flussi non bloccati: per poter bloccare un flusso, la rete deve essere congestionata e il traffico deve superare le soglie di banda o pcket_rate
         if not current_block_status and not is_admin_blocked:
-            # Condizioni per il blocco: congestione E (alta banda O impennata banda O impennata pacchetti O alto tasso pacchetti)
             block_window = self.block_thresholds.get(ip_proto, 5)
+
             with self.blocked_flows_lock:
                 self.blocked_flows.setdefault(datapath_id, {}).setdefault(flow_key, {'count': 0, 'blocked': False, 'type': ip_proto})
-                if self.congestion:
+                if self.congestion: #se la rete è congestionata
                     self.logger.info(f"[FLOW BLOCK][FLOW {flow_key}] Congestione E anomalia rilevata.")
+
+                    #Verifica se il flusso ha superato le soglie di band o packet_rate oppure ci sono stati burst
+                    #TODO: si possono includere altri controlli per identificare altri pattern di attacchi DoS
                     if bandwidth >= threshold or is_bursty_bandwidth or is_bursty_packet_rate or (ip_proto == 17 and is_high_packet_rate):
                         flow_info = self.blocked_flows[datapath_id][flow_key]
                         flow_info['count'] += 1
@@ -594,18 +604,21 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 }
                             current_block_status = True
                             hub.spawn(self._check_and_unblock_traffic, datapath, flow_key, ip_proto)
-        if current_block_status:
+
+        """if current_block_status:
             with self.blocked_flows_lock:
                 flow_info = self.blocked_flows.get(datapath_id, {}).get(flow_key)
                 if flow_info and flow_info['count'] > 0 and not flow_info['blocked'] and not flow_info.get('admin_blocked', False):
                     flow_info['count'] -= 1
-                    self.logger.info(f"  [FLOW BLOCK][FLOW {flow_key}] Anomalia risolta: {block_window - flow_info['count']} rilevazioni prima del blocco")
+                    self.logger.info(f"  [FLOW BLOCK][FLOW {flow_key}] Anomalia risolta: {block_window - flow_info['count']} rilevazioni prima del blocco")"""
 
     def _enforcement_manager(self): 
         self.logger.info("Enforcement Manager thread started.")
+
         while True:
             try:
                 action = self.enforcement_queue.get() # Blocca finché non c'è un'azione
+
                 action_type = action.get('type')
                 datapath = action.get('datapath')
                 flow_key = action.get('flow_key')
@@ -624,7 +637,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                 self.enforcement_queue.task_done()
             except Exception as e:
                 self.logger.error(f"Error in Enforcement Manager: {e}")
-            hub.sleep(0.01) # Breve pausa per evitare di saturare la CPU
+
+            hub.sleep(0.01) 
 
     #-------------------------------------------------------- Gestione blocco/sblocco --------------------------------------------------------
 
@@ -635,18 +649,16 @@ class SimpleSwitch13(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
         ip_src, ip_dst, src_port, dst_port, ip_proto = flow_key
-        in_port = src_port
+  
         match = None
         if match_params:
             match = self._build_match(parser, **match_params)
-            """match_params = {
-                                    'eth_type': 0x0800, # Assuming IP traffic
+            """Campi match_params:  'eth_type': 0x0800, 
                                     'ipv4_src': ip_src,
                                     'ip_proto': ip_proto,
                                     'ipv4_dst': ipv4_dst,
                                     'eth_src': eth_src,
-                                    'in_port': in_port
-                                }"""
+                                    'in_port': in_port """
         else:
             match = self._build_match(
                 parser,
@@ -655,8 +667,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                 ipv4_dst=ip_dst,
                 ip_proto=ip_proto,
                 src_port=src_port,
-                dst_port=dst_port,
-                in_port=in_port
+                dst_port=dst_port
             )
 
         with self.blocked_flows_lock:
@@ -683,7 +694,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.logger.info(f"             [FLOW BLOCK {datapath.id:016x}][IP {ip_src}][TYPE {ip_proto}] Flow blocked.")  
 
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, [MAIN_DISPATCHER, DEAD_DISPATCHER])
-    def _flow_removed_handler(self, ev):
+    def _flow_removed_handler(self, ev): 
         msg = ev.msg
         dp  = msg.datapath
         ofp = dp.ofproto
@@ -695,22 +706,14 @@ class SimpleSwitch13(app_manager.RyuApp):
             ofp.OFPRR_GROUP_DELETE:  "GROUP DEL"
         }.get(msg.reason, "UNKNOWN")
 
-        """self.logger.info(
-            "[FLOW REMOVED] dp=%s prio=%s match=%s "
-            "pkts=%s bytes=%s reason=%s",
-            dp.id, msg.priority, msg.match, msg.packet_count,
-            msg.byte_count, reason
-        )"""
-
-        # Se la regola rimossa è di priorità 2 (le nostre regole di blocco)
-        if msg.priority == 2:
+        if msg.priority == 2: #TODO: RICONTROLLARE 
             # Qui dovresti ricostruire la flow_key completa dal msg.match
             # # msg.match non sempre contiene src_port, dst_port, ip_proto
             ip_src = msg.match.get('ipv4_src')
-            ip_dst = msg.match.get('ipv4_dst')
-            ip_proto = msg.match.get('ip_proto')
-            src_port = msg.match.get('src_port')
-            dst_port = msg.match.get('dst_port')
+            ip_dst = msg.match.get('ipv4_dst', None)
+            ip_proto = msg.match.get('ip_proto', None)
+            src_port = msg.match.get('src_port', None)
+            dst_port = msg.match.get('dst_port', None)
             
             flow_key = (ip_src, ip_dst, src_port, dst_port, ip_proto) # Ricostruisci la chiave
             
@@ -727,17 +730,15 @@ class SimpleSwitch13(app_manager.RyuApp):
 
     def _check_and_unblock_traffic(self, datapath, flow_key, ip_proto):
         datapath_id = datapath.id
-        # flow_key contiene tutte le info
+
         unblock_window = self.unblock_thresholds.get(ip_proto, 5)
 
         while True:
-            # attende l’intervallo di polling usato dal monitor
             hub.sleep(self.sleep_time)
             #self.logger.info(f"         [UNBLOCK CHECK {datapath.id:016x}][IP {ip_src}][TYPE {ip_proto}] CONTROLLO SBLOCCO")
 
-            # legge il contatore aggiornato dal flow-handler
             flow_info = self.unblocked_flows.get(datapath_id, {}).get(flow_key)
-            if not flow_info:          # sbloccato altrove
+            if not flow_info: #se il flusso è già stato sbloccato altrove
                 return
             count = flow_info['count']
 
