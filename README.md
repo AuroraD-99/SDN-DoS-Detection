@@ -14,7 +14,7 @@ L’obiettivo è fornire agli amministratori strumenti per **monitorare i flussi
  
 ## 🧩 Componenti Principali
 
-### 🔧 Controller Ryu (`Controller3.py`)
+### 🔧 Controller Ryu (`Controller.py`)
 
 - Cuore del sistema SDN
 - Monitora i flussi e applica le logiche di rilevamento anomalie
