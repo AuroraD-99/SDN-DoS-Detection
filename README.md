@@ -11,7 +11,7 @@
 L’obiettivo è fornire agli amministratori strumenti per **monitorare i flussi di rete**, **identificare comportamenti anomali**, **bloccare/sbloccare il traffico malevolo** e **visualizzare statistiche dettagliate**.
 
 ---
-
+ 
 ## 🧩 Componenti Principali
 
 ### 🔧 Controller Ryu (`Controller3.py`)
