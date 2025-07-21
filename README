@@ -4,9 +4,9 @@
 
 **SDN-DoS-Detection** è un sistema avanzato per il rilevamento e la mitigazione di attacchi **DoS/DDoS** in reti **SDN (Software Defined Networking)**. Il progetto sfrutta:
 
-- il **controller Ryu** per la gestione del piano di controllo,
-- una **dashboard interattiva Streamlit** per il monitoraggio in tempo reale,
-- e una **API REST** per interazioni programmatiche.
+- **Controller Ryu** per la gestione del piano di controllo
+- **Dashboard interattiva Streamlit** per il monitoraggio in tempo reale
+- **API REST** per interazioni programmatiche
 
 L’obiettivo è fornire agli amministratori strumenti per **monitorare i flussi di rete**, **identificare comportamenti anomali**, **bloccare/sbloccare il traffico malevolo** e **visualizzare statistiche dettagliate**.
 
@@ -15,56 +15,56 @@ L’obiettivo è fornire agli amministratori strumenti per **monitorare i flussi
 ## 🧩 Componenti Principali
 
 ### 🔧 Controller Ryu (`Controller3.py`)
-- Cuore del sistema SDN.
-- Monitora i flussi e applica le logiche di rilevamento anomalie.
-- Gestisce dinamicamente la **blocklist**.
-- Espone una **REST API** integrata.
+
+- Cuore del sistema SDN
+- Monitora i flussi e applica le logiche di rilevamento anomalie
+- Gestisce dinamicamente la **blocklist**
+- Espone una **REST API** integrata
 
 ### 🌐 API REST (`api_handlers.py`)
+
 - Espone endpoint per:
-  - bloccare/sbloccare traffico,
-  - visualizzare statistiche,
-  - interrogare host e flussi.
-- Utilizzabile per automazioni e integrazioni esterne.
+  - bloccare/sbloccare traffico
+  - visualizzare statistiche
+  - interrogare host e flussi
+- Utilizzabile per automazioni e integrazioni esterne
 
 ### 📊 Dashboard Streamlit (`dashboard.py`)
-- Interfaccia grafica semplice e interattiva.
+
+- Interfaccia grafica semplice e interattiva
 - Consente di:
-  - visualizzare flussi e host in tempo reale,
-  - monitorare lo stato della rete,
-  - gestire la blocklist.
+  - visualizzare flussi e host in tempo reale
+  - monitorare lo stato della rete
+  - gestire la blocklist
 
 ### 🧪 Topologie Mininet (`topology1.py`, `topology2.py`)
-- Script preconfigurati per l'emulazione di scenari SDN realistici.
-- Utili per testare il comportamento del sistema in condizioni differenti.
+
+- Script preconfigurati per l'emulazione di scenari SDN realistici
+- Utili per testare il comportamento del sistema in condizioni differenti
 
 ---
 
 ## ⚙️ Funzionalità Principali
 
 - **🔍 Rilevamento automatico**  
-  Identificazione di flussi anomali e congestioni.
-
+  Identificazione di flussi anomali e congestioni
 - **🛡️ Mitigazione dinamica**  
-  Blocco/sblocco manuale e automatico dei flussi in base al comportamento osservato.
-
+  Blocco/sblocco manuale e automatico dei flussi in base al comportamento osservato
 - **📡 Monitoraggio completo**  
-  Statistiche dettagliate su flussi, host e traffico aggregato.
-
+  Statistiche dettagliate su flussi, host e traffico aggregato
 - **🧱 Indipendenza topologica**  
-  Funziona con topologie diverse, dimostrando flessibilità del controller.
-
+  Funziona con topologie diverse, dimostrando flessibilità del controller
 - **🔄 Gestione adattiva dei blocchi**  
-  Politiche intelligenti di riattivazione automatica dei flussi quando le condizioni si normalizzano.
+  Politiche intelligenti di riattivazione automatica dei flussi quando le condizioni si normalizzano
 
 ---
 
 ## 📦 Requisiti
 
-- Python ≥ 3.8  
-- Ryu SDN Framework  
-- Mininet  
-- Streamlit  
+- Python ≥ 3.8
+- Ryu SDN Framework
+- Mininet
+- Streamlit
 - Librerie Python: `pandas`, `altair`, `requests`
 
 ---
