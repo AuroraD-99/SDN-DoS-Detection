@@ -581,7 +581,7 @@ class SimpleSwitch13(app_manager.RyuApp):
 
             self._process_flow_for_policy_decision(datapath, stat, flow_key, ip_proto)
     
-    def _process_flow_for_policy_decision(self, datapath, stat, flow_key, ip_proto): #TODO: RICONTROLLARE, CI SONO DELLE PARTI CHE NON MI CONVINCONO
+    def _process_flow_for_policy_decision(self, datapath, stat, flow_key, ip_proto): 
         datapath_id = datapath.id
         current_time = time.time()
 
@@ -709,7 +709,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                             current_block_status = True
                             hub.spawn(self._check_and_unblock_traffic, datapath, flow_key, ip_proto)
 
-    def _enforcement_manager(self): #TODO: 
+    def _enforcement_manager(self): 
         self.logger.info("Enforcement Manager thread started.")
 
         while True:
@@ -745,7 +745,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         ofproto = datapath.ofproto
   
         match = None
-        match = self._build_match(parser, **match_params) #TODO: ASSICURARE CHE L'API FORNISCA SEMPRE MATCH_PARAMS
+        match = self._build_match(parser, **match_params) 
         """Campi match_params:  'eth_type': 0x0800, 
                                 'ipv4_src': ip_src,
                                 'ip_proto': ip_proto,

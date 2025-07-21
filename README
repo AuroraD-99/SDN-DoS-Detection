@@ -1,0 +1,120 @@
+SDN-DoS-Detection
+Descrizione
+Questo progetto implementa un sistema avanzato di rilevamento e mitigazione di attacchi DoS/DDoS in reti SDN (Software Defined Networking). Sfrutta il controller Ryu per la gestione sottostante, una dashboard Streamlit per un'interfaccia utente intuitiva e interattiva, e una API REST per la programmatica interazione con il sistema. L'obiettivo è fornire agli amministratori di rete gli strumenti necessari per monitorare attivamente i flussi di rete, identificare e bloccare/sbloccare il traffico malevolo, visualizzare statistiche dettagliate e gestire la rete in modo dinamico ed efficiente.
+
+Componenti Principali
+Il sistema è strutturato in moduli interconnessi per garantire flessibilità e manutenibilità:
+
+Controller Ryu (Controller3.py):
+Il cuore del sistema, responsabile del monitoraggio continuo dei flussi di rete, dell'applicazione della logica di rilevamento delle anomalie e della gestione dei processi di blocco e sblocco dei flussi. Funge anche da server per l'esposizione delle API REST.
+
+API REST (api_handlers.py):
+Un insieme di endpoint che consentono l'interazione programmatica con il controller. Attraverso queste API è possibile gestire la blocklist, recuperare statistiche dettagliate sulla rete, ottenere informazioni sugli host e sui flussi di traffico.
+
+Dashboard Streamlit (dashboard.py):
+Un'interfaccia grafica utente (GUI) sviluppata per offrire agli amministratori di rete una visualizzazione chiara e interattiva dello stato della rete. Permette di monitorare statistiche in tempo reale, gestire manualmente i flussi (bloccare/sbloccare) e accedere a dettagli specifici su host e flussi.
+
+Topologie Mininet (topology1.py, topology2.py):
+Script preconfigurati per l'emulazione di diverse topologie di rete SDN utilizzando Mininet. Questi script sono fondamentali per simulare scenari di rete realistici e testare le funzionalità di rilevamento e mitigazione del sistema.
+
+Funzionalità
+Il sistema offre le seguenti funzionalità chiave:
+
+Rilevamento automatico: Identificazione di flussi anomali e situazioni di congestione nella rete.
+
+Mitigazione: Capacità di bloccare e sbloccare flussi di traffico, sia manualmente tramite la dashboard o le API, sia automaticamente in base alla logica del controller.
+
+Monitoraggio completo: Visualizzazione dettagliata di flussi, host, statistiche generali di rete e la lista dei flussi bloccati.
+
+Flessibilità topologica: Supporto e validazione su diverse topologie di rete emulate tramite Mininet, dimostrando l'indipendenza del controller dalla specifica configurazione fisica.
+
+Gestione flessibile dei blocchi: Implementazione di una politica di blocco/sblocco più adattiva, che include la riattivazione dei flussi bloccati quando le condizioni di rete si normalizzano, come descritto nella Sezione 6.1 e 6.2.
+
+Requisiti
+Per eseguire il progetto, sono necessari i seguenti strumenti e librerie:
+
+Python 3.8+
+
+Ryu SDN Framework
+
+Mininet
+
+Streamlit
+
+Librerie Python: Pandas, Altair, Requests
+
+Installazione
+Seguire i passaggi seguenti per configurare l'ambiente:
+
+Clonare il repository:
+
+Bash
+
+git clone <URL_DEL_REPOSITORY>
+cd SDN-DoS-Detection
+Installare le dipendenze Python:
+
+Bash
+
+pip install -r requirements.txt
+
+Avvio del Sistema
+Per avviare l'intero sistema, procedere in questo ordine:
+
+Avviare il controller Ryu:
+Aprire un terminale e navigare nella directory del progetto.
+
+Bash
+
+ryu-manager Controller.py
+Avviare la topologia Mininet:
+Aprire un nuovo terminale. Assicurarsi che il controller Ryu sia già in esecuzione.
+
+Bash
+
+sudo python topology1.py # O topology2.py a seconda della topologia desiderata
+
+Avviare la dashboard Streamlit:
+Aprire un terzo terminale. Assicurarsi che il controller Ryu sia in esecuzione.
+
+Bash
+
+streamlit run dashboard.py
+Utilizzo
+Accedere alla dashboard: Una volta avviata, la dashboard sarà accessibile tramite il browser all'indirizzo http://localhost:8501. Utilizzarla per visualizzare le statistiche di rete, monitorare i flussi, gestire la blocklist e interagire con gli host.
+
+Generare traffico: Usare la CLI di Mininet (dal terminale dove è stata avviata la topologia) per generare traffico (es. ping, iperf) e testare la logica di rilevamento e mitigazione.
+
+Interagire con le API REST: Le API del controller sono esposte su http://localhost:8080. È possibile utilizzarle per automazioni o integrazioni personalizzate.
+
+Endpoints API Principali
+Di seguito i principali endpoint esposti dal controller. Per un elenco completo e dettagli sui parametri di richiesta e risposte, si prega di fare riferimento alle Sezioni 4.2 "HostApi" e 4.3 "NetworkStatsApi" della documentazione.
+
+POST /blocklist: Blocca un flusso specifico in base ai criteri forniti.
+
+DELETE /blocklist/{ip_address}: Sblocca tutti i flussi associati a un determinato indirizzo IP.
+
+GET /blocklist/all: Recupera la lista completa di tutti i flussi attualmente bloccati.
+
+GET /network/stats: Ottiene statistiche generali e aggregate sullo stato della rete (es. numero di host totali, distribuzione protocolli, bandwidth totale).
+
+GET /stats/flows: Fornisce statistiche dettagliate su tutti i flussi di traffico attivi, raggruppate per datapath ID.
+
+GET /hosts/all: Restituisce una lista di tutti gli host rilevati nella rete con le loro informazioni e statistiche aggregate.
+
+GET /hosts/{ip_address}/details: Fornisce dettagli specifici per un host tramite il suo indirizzo IP, inclusi i flussi in cui è coinvolto.
+
+Note e Troubleshooting
+Ordine di Avvio: È fondamentale avviare il controller Ryu prima di avviare le topologie Mininet e la dashboard Streamlit, in quanto queste ultime dipendono dai servizi forniti dal controller.
+
+Dettagli Host in Dashboard: Se la dashboard mostra errori o dati incompleti sui dettagli degli host (/hosts/{ip_address}/details), assicurarsi che l'host in questione abbia generato traffico significativo nella rete, permettendo al controller di rilevarlo e raccogliere statistiche (es. effettuare un ping dall'host).
+
+Personalizzazione: Le soglie di rilevamento degli attacchi e le regole di blocco possono essere personalizzate all'interno del codice del controller (Controller3.py) per adattarsi a specifiche esigenze o scenari di rete.
+
+Robustezza e Flessibilità: Il progetto è stato concepito per superare le limitazioni di implementazioni precedenti, in particolare per quanto riguarda l'overblocking, la sensibilità alla topologia e la flessibilità delle politiche di blocco/sblocco, come dettagliato nella Sezione 6 "Topologia e Testing".
+
+Autori
+AuroraD-99
+
+Licenza
+MIT License
