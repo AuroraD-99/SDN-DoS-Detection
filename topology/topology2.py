@@ -20,16 +20,12 @@ class Environment(object):
         c1.start()
 
         info("*** Adding hosts and switches\n")
-        # Aggiunta degli Host (6 legittimi, 2 attaccanti)
-        # Host Legittimi (distribuiti su diversi switch edge)
+        # Aggiunta degli Host 
         self.h1 = self.net.addHost('h1', mac='00:00:00:00:00:01', ip='10.0.0.1')
         self.h2 = self.net.addHost('h2', mac='00:00:00:00:00:02', ip='10.0.0.2')
         self.h3 = self.net.addHost('h3', mac='00:00:00:00:00:03', ip='10.0.0.3')
         self.h4 = self.net.addHost('h4', mac='00:00:00:00:00:04', ip='10.0.0.4')
-        self.h5 = self.net.addHost('h5', mac='00:00:00:00:00:05', ip='10.0.0.5')
-        self.h6 = self.net.addHost('h6', mac='00:00:00:00:00:06', ip='10.0.0.6')
-        self.h7 = self.net.addHost('h7', mac='00:00:00:00:00:07', ip='10.0.0.7') # Attaccante 1 su s8
-        self.h8 = self.net.addHost('h8', mac='00:00:00:00:00:08', ip='10.0.0.8') # Attaccante 2 su s9
+        self.h5 = self.net.addHost('h5', mac='00:00:00:00:00:05', ip='10.0.0.5') 
 
         # Aggiunta degli Switch (Totale: 10)
         # Livello Core (2 switch)
@@ -73,11 +69,6 @@ class Environment(object):
         self.net.addLink(self.h3, self.s8, bw=3, delay='25ms')
         self.net.addLink(self.h4, self.s9, bw=3, delay='25ms')
         self.net.addLink(self.h5, self.s10, bw=3, delay='25ms')
-        self.net.addLink(self.h6, self.s10, bw=3, delay='25ms') # h5 e h6 sullo stesso switch edge
-
-        # Distribuzione Host Attaccanti (su switch edge diversi)
-        self.net.addLink(self.h7, self.s8, bw=3, delay='25ms') # a1 su s8 (condivide con h3)
-        self.net.addLink(self.h8, self.s9, bw=3, delay='25ms') # a2 su s9 (condivide con h4)
 
         info("*** Starting network\n")
         self.net.build()
@@ -86,7 +77,7 @@ class Environment(object):
     def check_connectivity(self):
         "Check connectivity between hosts"
         info("*** Checking connectivity between hosts\n")
-        hosts = [self.h1, self.h2, self.h3]
+        hosts = [self.h1, self.h2, self.h3, self.h3, self.h4, self.h5]
         for h1 in hosts:
             for h2 in hosts:
                 if h1 != h2:

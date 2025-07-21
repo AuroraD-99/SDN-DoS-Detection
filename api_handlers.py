@@ -21,11 +21,12 @@ class BlocklistApi(ControllerBase):
     def __init__(self, req, link, data, **config):
         super(BlocklistApi, self).__init__(req, link, data, **config)
         self.dps = data['dps']  # {dpid: datapath_object}
-        # {dpid: {flow_key (tuple): {info_blocco}}}
-        self.blocked_flows = data['blocked_flows']  
+        self.blocked_flows = data['blocked_flows'] # {dpid: {flow_key (tuple): {info_blocco}}}
+        self.unblocked_flows = data['unblocked_flows']
         self.enforcement_queue = data['enforcement_queue']
         self.blocked_flows_lock = data['blocked_flows_lock']
-        self.logger = data['logger']  # Logger instance
+        self.unblocked_flows_lock = data['unblocked_flows_lock']
+        self.logger = data['logger']
 
     @route('blocklist', '/blocklist', methods=['POST'])
     def add_to_blocklist(self, req, **kwargs):
@@ -37,10 +38,17 @@ class BlocklistApi(ControllerBase):
             src_port = body.get('src_port')  
             dst_port = body.get('dst_port') 
             ip_proto = body.get('ip_proto') 
+
+            if src_port is not None: 
+                src_port = int(src_port)
+            if dst_port is not None: 
+                dst_port = int(dst_port)
+            if ip_proto is not None: 
+                ip_proto = int(ip_proto)
             
-            dpid_str = body.get('dpid')  
-            eth_src = body.get('eth_src')  
-            in_port = body.get('in_port')  
+            dpid_str = body.get('dpid')  #TODO: è necessario specificare il dpid - si trova con il comportamento del controller
+            #eth_src = body.get('eth_src')  
+            #in_port = body.get('in_port')  
             reason = body.get('reason', 'Manual block from Dashboard')
 
             if not ip_src:
@@ -71,45 +79,46 @@ class BlocklistApi(ControllerBase):
                 for datapath in datapaths_to_block:
                     dpid = datapath.id
 
-                    match_details = {'eth_type': 0x0800} 
+                    match_params = {'eth_type': 0x0800} 
                     if ip_src:
-                        match_details['ipv4_src'] = ip_src
+                        match_params['ipv4_src'] = ip_src
                     if ip_dst:
-                        match_details['ipv4_dst'] = ip_dst
+                        match_params['ipv4_dst'] = ip_dst
                     if ip_proto is not None:
-                        match_details['ip_proto'] = ip_proto
+                        match_params['ip_proto'] = ip_proto
+                        
                     if src_port is not None:
                         if ip_proto == 6: # TCP
-                            match_details['tcp_src'] = src_port
+                            match_params['tcp_src'] = src_port
                         elif ip_proto == 17: # UDP
-                            match_details['udp_src'] = src_port
+                            match_params['udp_src'] = src_port
                     if dst_port is not None:
                         if ip_proto == 6: # TCP
-                            match_details['tcp_dst'] = dst_port
+                            match_params['tcp_dst'] = dst_port
                         elif ip_proto == 17: # UDP
-                            match_details['udp_dst'] = dst_port
-                    if eth_src:
-                        match_details['eth_src'] = eth_src
+                            match_params['udp_dst'] = dst_port
+                    """if eth_src:
+                        match_params['eth_src'] = eth_src
                     if in_port is not None:
-                        match_details['in_port'] = in_port
+                        match_params['in_port'] = in_port"""
 
                     self.blocked_flows.setdefault(dpid, {})[flow_key] = {
                         'blocked': True,
                         'admin_blocked': True,
                         'time': time.time(),
                         'reason': reason,
-                        'match_params': match_details, 
+                        'match_params': match_params, 
                         'flow_key': (ip_src, ip_dst, src_port, dst_port, ip_proto)
                     }
                     
                     self.enforcement_queue.put({
-                        'type': 'block',
-                        'datapath': datapath,
-                        'match_params': match_details, 
-                        'admin_override': True, 
-                        'flow_key': (ip_src, ip_dst, src_port, dst_port, ip_proto)
+                            'type': 'block', 
+                            'datapath': datapath, 
+                            'flow_key': flow_key, 
+                            'admin_override': True, 
+                            'match_params': match_params # Passa il dizionario dei parametri del match
                     })
-                    self.logger.info(f"API Request: Enqueued block for flow {flow_key} (admin override, Match: {match_details}) on DP {dpid:016x}")
+                    self.logger.info(f"API Request: Enqueued block for flow {flow_key} (admin override, Match: {match_params}) on DP {dpid:016x}")
                     blocked_datapaths_ids.append(f'{dpid:016x}')
 
             return Response(status=200, body=json.dumps({"message": f"Flow {str(flow_key)} added to blocklist on datapaths: {', '.join(blocked_datapaths_ids)}"}), content_type='application/json; charset=utf-8')
@@ -124,13 +133,19 @@ class BlocklistApi(ControllerBase):
     @route('blocklist', '/blocklist/{ip_address}', methods=['DELETE'])
     def remove_from_blocklist(self, req, ip_address, **kwargs):
         try:
-            query_params = req.GET
+            query_params = req.GET #TODO: DA CHIARIRE MEGLIO IL FUNZIONAMENTO - SE RICHIAMA GET_BLOCKLIST_STATUS NON PUò PRENDERE DIRETTAMENTE LA FLOW_KEY?
 
-            ip_src = ip_address 
+            ip_src = query_params.get('ip_src')
             ip_dst = query_params.get('ip_dst')
             src_port = int(query_params['src_port']) if 'src_port' in query_params else None
+            if src_port is None:
+                self.logger.warning(f"[API UNBLOCK] src_port mancante per l'IP {ip_src}.")
             dst_port = int(query_params['dst_port']) if 'dst_port' in query_params else None
+            if dst_port is None:
+                self.logger.warning(f"[API UNBLOCK] dst_port mancante per l'IP {ip_src}.")
             ip_proto = int(query_params['ip_proto']) if 'ip_proto' in query_params else None
+            if ip_proto is None:
+                self.logger.warning(f"[API UNBLOCK] ip_proto mancante per l'IP {ip_src}.")
 
             flow_key_filter = (ip_src, ip_dst, src_port, dst_port, ip_proto)
             
@@ -143,38 +158,28 @@ class BlocklistApi(ControllerBase):
             unblocked_datapaths = []
             flows_to_remove_from_state = [] 
 
-            with self.blocked_flows_lock:
-                for dpid_int, flows_on_dpid in list(self.blocked_flows.items()):
-                    if dpid_filter is not None and dpid_int != dpid_filter:
-                        continue 
+            for dpid_int, flows_on_dpid in list(self.blocked_flows.items()):
+                if dpid_filter is not None and dpid_int != dpid_filter:
+                    continue 
 
-                    # Iterate through all stored blocked flows for this DPID
-                    for stored_flow_key, flow_info in list(flows_on_dpid.items()):
-                        match = True
-                        for i in range(5): 
-                            if flow_key_filter[i] is not None and flow_key_filter[i] != stored_flow_key[i]:
-                                match = False
-                                break
-                        
-                        if match:
-                            flow_info['admin_blocked'] = False
-                            flow_info['blocked'] = False 
+                for stored_flow_key, flow_info in list(flows_on_dpid.items()):
+                    match = True
+                    for i in range(5): 
+                        if flow_key_filter[i] is not None and flow_key_filter[i] != stored_flow_key[i]:
+                            match = False
+                            break
+                    
+                    if match:
+                        self.enforcement_queue.put({
+                            'type': 'unblock',
+                            'datapath': self.dps.get(dpid_int),
+                            'match_params': flow_info.get('match_params', {}), 
+                            'flow_key': stored_flow_key 
+                        })
+                        self.logger.info(f"API Request: Enqueued unblock for flow {stored_flow_key} (admin override) on DP {dpid_int:016x}")
+                        unblocked_datapaths.append(f'{dpid_int:016x}')
 
-                            self.enforcement_queue.put({
-                                'type': 'unblock',
-                                'datapath': self.dps.get(dpid_int),
-                                'match_params': flow_info.get('match_params', {}), 
-                                'flow_key': stored_flow_key 
-                            })
-                            self.logger.info(f"API Request: Enqueued unblock for flow {stored_flow_key} (admin override) on DP {dpid_int:016x}")
-                            unblocked_datapaths.append(f'{dpid_int:016x}')
-                            flows_to_remove_from_state.append((dpid_int, stored_flow_key)) 
-                            
-                for dpid_int, flow_key_to_remove in flows_to_remove_from_state:
-                    if dpid_int in self.blocked_flows and flow_key_to_remove in self.blocked_flows[dpid_int]:
-                        del self.blocked_flows[dpid_int][flow_key_to_remove]
-                        if not self.blocked_flows[dpid_int]: 
-                            del self.blocked_flows[dpid_int]
+                        flows_to_remove_from_state.append((dpid_int, stored_flow_key)) 
 
             if not unblocked_datapaths:
                 if dpid_filter or any(param is not None for param in flow_key_filter[1:]): 
@@ -259,7 +264,7 @@ class NetworkStatsApi(ControllerBase):
                         ip_proto = flow_key_tuple[4] 
 
                         if ip_proto is not None:
-                            proto_name = PROTO_MAP.get(ip_proto, 'Other')
+                            proto_name = PROTO_MAP.get(ip_proto, 'Unknown/Other')
                             protocol_distribution[proto_name] = protocol_distribution.get(proto_name, 0) + stats.get('packet_count', 0)
                         else:
                             protocol_distribution['Unknown/Other'] = protocol_distribution.get('Unknown/Other', 0) + stats.get('packet_count', 0)
@@ -270,7 +275,7 @@ class NetworkStatsApi(ControllerBase):
 
             # Se non ci sono flussi, inizializza con 0 per i protocolli comuni
             if not protocol_distribution:
-                protocol_distribution = {"TCP": 0, "UDP": 0, "ICMP": 0, "Other": 0}
+                protocol_distribution = {"TCP": 0, "UDP": 0, "ICMP": 0, "Unknown/Other": 0}
 
             return Response(status=200, body=json.dumps({
                 "total_hosts": total_hosts,
@@ -349,8 +354,8 @@ class HostApi(ControllerBase):
 
                     # Inizializza i totali per l'host per port_throughput e flow_rates
                     port_throughput = {'rx_bytes': 0.0, 'tx_bytes': 0.0, 'throughput_rx': 0.0, 'throughput_tx': 0.0,
-                                       'throughput_total_bps': 0.0, 'rx_packets': 0.0, 'tx_packets': 0.0,
-                                       'packet_rate_total_pps': 0.0, 'rx_errors': 0.0, 'tx_errors': 0.0}
+                                       'total': 0.0, 'rx_packets': 0.0, 'tx_packets': 0.0,
+                                       'packet_rate_totals': 0.0, 'rx_errors': 0.0, 'tx_errors': 0.0}
                     
                     host_flow_rates = {'total_bandwidth_mbps': 0.0, 
                                        'total_packet_rate_pps': 0.0,
@@ -362,16 +367,16 @@ class HostApi(ControllerBase):
 
                     # Ottieni le statistiche della porta (se disponibili e pertinenti per l'host)
                     with self.port_stats_lock:
-                        if dpid in self.port_stats and in_port != 'N/A' and in_port in self.port_stats[dpid]:
+                        if dpid in self.port_stats and in_port != None and in_port in self.port_stats[dpid]:
                             port_stats_for_host_port = self.port_stats[dpid][in_port]
                             port_throughput['rx_bytes'] = port_stats_for_host_port.get('rx_bytes', 0.0)
                             port_throughput['tx_bytes'] = port_stats_for_host_port.get('tx_bytes', 0.0)
                             port_throughput['throughput_rx'] = port_stats_for_host_port.get('throughput_rx', 0.0)
                             port_throughput['throughput_tx'] = port_stats_for_host_port.get('throughput_tx', 0.0)
-                            port_throughput['throughput_total_bps'] = port_stats_for_host_port.get('total', 0.0)
+                            port_throughput['total'] = port_stats_for_host_port.get('total', 0.0)
                             port_throughput['rx_packets'] = port_stats_for_host_port.get('rx_packets', 0.0)
                             port_throughput['tx_packets'] = port_stats_for_host_port.get('tx_packets', 0.0)
-                            port_throughput['packet_rate_total_pps'] = port_stats_for_host_port.get('packet_rate_total', 0.0)
+                            port_throughput['packet_rate_total'] = port_stats_for_host_port.get('packet_rate_total', 0.0)
                             port_throughput['rx_errors'] = port_stats_for_host_port.get('rx_errors', 0.0)
                             port_throughput['tx_errors'] = port_stats_for_host_port.get('tx_errors', 0.0)
 
@@ -445,7 +450,7 @@ class HostApi(ControllerBase):
 
                         # Ottieni le statistiche della porta
                         with self.port_stats_lock:
-                            if dpid in self.port_stats and in_port != 'N/A' and in_port in self.port_stats[dpid]:
+                            if dpid in self.port_stats and in_port != None and in_port in self.port_stats[dpid]:
                                 port_stats_for_host_port = self.port_stats[dpid][in_port]
                                 host_details['current_port_throughput_bps'] = port_stats_for_host_port.get('total', 0.0)
                                 host_details['current_port_packet_rate_pps'] = port_stats_for_host_port.get('packet_rate_total', 0.0)
